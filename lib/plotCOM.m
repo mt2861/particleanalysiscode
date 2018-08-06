@@ -13,12 +13,13 @@ if box_x>0 || box_y>0 % if periodic box, then scale markersize with radius
     LyboxInRadii = box_y/a;   
     ms = 10;
     ms = pi*(Lybox/ LyboxInRadii)^2*ms; %markersize
-    hscat=scatter(mod(pos_COMs(t,:,2),box_y)/a,mod(pos_COMs(t,:,1),box_x)/a,ms,pos_COMs(t,:,3)/a,'.');
+    scatter(mod(pos_COMs(t,:,2),box_y)/a,mod(pos_COMs(t,:,1),box_x)/a,ms,pos_COMs(t,:,3)/a,'.');
 else
     ms = 10;
-    hscat=scatter(mod(pos_COMs(t,:,2),box_y)/a,mod(pos_COMs(t,:,1),box_x)/a,ms,pos_COMs(t,:,3)/a,'.');
+    scatter(mod(pos_COMs(t,:,2),box_y)/a,mod(pos_COMs(t,:,1),box_x)/a,ms,pos_COMs(t,:,3)/a,'.');
 end
-colormap(parula)
+colormap(jet)
 caxis([hmin/a hmax/a])
+colorbar
 end
 

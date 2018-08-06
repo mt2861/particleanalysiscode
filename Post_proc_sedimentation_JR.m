@@ -9,7 +9,7 @@ set(0,'DefaultAxesFontSize',22)
 lw = 2; % default linewidth
 ms = 8; % default markersize
 %% Options
-image_sequence = 1;
+image_sequence = 0;
 step = 10;
 flip_axis=1;
 moving_grid = 0;
@@ -23,10 +23,10 @@ end
 
 save_paraview = 0;
 
-histogram_height = 0;
+histogram_height = 1;
 histogram_height_front = 1;
 show_histogram_height = 1;
-save_figure_height_histogram =1;
+save_figure_height_histogram =0;
 save_movie_histogram = 1;
 
 analyze_fourier = 0;
@@ -35,8 +35,8 @@ show_particles = 1;
 save_movie_fourier = 1;
 
 analyze_front_density = 1;
-plot_density = 1;
-save_movie_density = 1;
+plot_density = 0;
+save_movie_density = 0;
 
 resolution = 0; % 0: singleblob, 12: 12 blobs, etc...
 %% declare the remaining needed variables
@@ -74,15 +74,7 @@ if image_sequence
     box_y = imseq.dimensions(2)*pixel_size;
     box_z = 0;
 else
-%     filename_input = 'test_sedimentation.inputfile';
-%     filename_input = [ ...
-%         tilt_angle '_angle_' ...
-%         num2str(N) '_N_' ...
-%         num2str(initial_x_length) '_Lx_' ...
-%         num2str(initial_y_length) '_Ly.inputfile'
-%         ];
-    filename_input = ...
-        'N_30000_area_fraction_0_39999_grav_height_0_027394_Lx_645_Ly_1611_tilt_angle_0_524.inputfile';
+    filename_input = './N_30000_area_fraction_0_39999_grav_height_0_027394_Lx_645_Ly_1611_tilt_angle_0_524.inputfile';
     dat = readInputfile(filename_input);
 
     blob_radius = dat.blob_radius;
@@ -131,7 +123,7 @@ else
 
     num_saved_steps = (num_steps/step_save_frequency)+1;
 
-    dir_to_take_data = 'saves/';
+    dir_to_take_data = './';
     folder = ['N_' num2str(N) ...
         '_area_fraction_' str_area_fraction ...
         '_grav_height_' str_grav_height ...
@@ -163,12 +155,11 @@ else
     num_time_samples = length(saved_steps_vec);
 end
 %% Open data files
-dir_to_save_data = 'saves';
-file_blobs_tot = ...
-    'N_30000_area_fraction_0_39999_grav_height_0_027394_Lx_645_Ly_1611_tilt_angle_0_524.config';
+dir_to_save_data = './saves';
+mkdir 'saves'
 if image_sequence
 else
-    %file_blobs_tot = [dir_to_take_data  folder '/' folder '.config']
+    file_blobs_tot = ['N_30000_area_fraction_0_39999_grav_height_0_027394_Lx_645_Ly_1611_tilt_angle_0_524.config'];
     if exist(file_blobs_tot, 'file')
         data_pos_orient = readConfig(file_blobs_tot, num_saved_steps, N);
         if Still_running == 0
@@ -183,7 +174,7 @@ end
 %% Check that sizes correspond
 if image_sequence
 else
-    Nsaves_test = size(data_pos_orient,1)/N
+    Nsaves_test = size(data_pos_orient,1)/N;
     if Nsaves_test ~= num_saved_steps
         Nsaves_test
         num_saved_steps
@@ -223,8 +214,143 @@ else
           end  
     end
 end
+%% Analyze density profile along translational direction
+if analyze_front_density ==1
+    if image_sequence
+        saves_to_analyze = saved_steps_vec;
+    else
+        list_part = 1:N;
+        hmin = min(min(pos_COMs(:,:,3)));
+        hmax = max(max(pos_COMs(:,:,3)));
+
+        jump_front_density = 1;
+        save_1 = 1;
+        save_end = num_time_samples;   
+        saves_to_analyze = save_1:jump_front_density:save_end;
+    end  
+    % Number of frames/saved states
+    Nanalyzed = length(saves_to_analyze);
+    % Bin
+    % if moving grid dynamically choose grid and gridsize
+    if moving_grid
+        max_x = max(max(pos_COMs(save_1:save_end,:,1)));
+        min_x = min(min(pos_COMs(save_1:save_end,:,1)));
+        dx_density = 5*a;
+    % else choose a grid aligned with pixel grid
+    else
+        max_x = window(1);
+        min_x = 0;
+        dx_density = pixel_size;
+    end
+    % Set required variables from image sequence properties
+    if image_sequence
+        max_x = imseq.dimensions(1)*pixel_size;
+        min_x = 0;
+        dx_density = pixel_size;
+    end
+    % Common variables
+    if image_sequence
+        x_density = (0:imseq.dimensions(1)-1)*pixel_size;
+        density_x_time = zeros(Nanalyzed,imseq.dimensions(1));
+    else
+        Nx_density = floor((max_x-min_x)/dx_density);
+        x_density = linspace(min_x,max_x,Nx_density);
+        dx_density = x_density(2)-x_density(1);
+        density_x_time = zeros(Nanalyzed,Nx_density);
+    end
+    % set variable density_x_time
+    wait = waitbar(0)
+    if image_sequence
+        for i=saves_to_analyze
+            imseq_i = imseq.get(i);
+            thresholded = imseq_i == 0;
+            density_x_time(i, 1:end) = sum(imseq_i, 2);
+            waitbar(i/imseq.no_frames, wait,sprintf('frame %d of %d', i, imseq.no_frames));
+        end
+        disp(density_x_time(1,1:end))
+    else
+        t = 0;  
+        for i=saves_to_analyze
+            t=t+1;
+            indices_x = floor(pos_COMs(i,:,1)/dx_density)+1;
+            for nx=1:Nx_density
+                density_x_time(t,nx) = numel(list_part(indices_x == nx));
+            end
+        end
+    end
+
+    % Plot
+    if plot_density == 1
+        hfig = figure;
+        set(hfig,'position',[500 500  1500 800])
+        % Run through frames
+        t = 0;    
+        for i=saves_to_analyze
+            t=t+1;    
+            % Settings
+            box on; subplot(1,3,1); box on
+            % Plot COMs
+            if image_sequence
+                axis_params = [0 box_y/a min_x/a max_x/a];
+                frame = imseq.get(i);
+                plotImage(i, t, frame, pixel_size, a, box_x, box_y, ms, axis_params, time_vec)
+            else
+                if ~moving_grid
+                    axis_params = [0 window(2)/a min_x/a max_x/a];
+                else
+                    axis_params = [0 box_y/a min_x/a max_x/a];
+                end
+                plotCOM(i, t, pos_COMs, a, box_x, box_y, ms, axis_params, ...
+                    hmin, hmax, time_vec)
+            end
+            axis equal
+            axis(axis_params)
+            xlabel('$y/a$','fontsize',30)
+            ylabel('$x/a$','fontsize',30) 
+            set(gca,'yminortick','on')
+            set(gca,'xminortick','on')
+            set(gca,'ticklength',3*get(gca,'ticklength'))
+            box on
+            title(['$t = $' num2str(time_vec(i),'%5.2f') '$ s$'],'fontsize',30)
+            % Settings
+            subplot(1,3,2:3); box on
+            % Plot density
+            plot((x_density + dx_density/2)/a,density_x_time(t,:),'-k','linewidth',1.5)    
+            xlim([min_x/a max_x/a])
+            ylim([0 max(max(density_x_time))])     
+            % Agnostic settings
+            ylabel('$\rho(x,t)$','fontsize',30)     
+            xlabel('$x/a$','fontsize',30)
+            set(gca,'yminortick','on')
+            set(gca,'xminortick','on')
+            set(gca,'ticklength',3*get(gca,'ticklength'))
+            set(hfig,'color','w')
+            set(gca,'layer','top')
+            pause(0.0001)
+            % Save frame
+            if save_movie_density == 1
+                mov(t) = getframe(hfig);
+                if t==1
+                    size_mov1 = size(mov(t).cdata,1);
+                    size_mov2 = size(mov(t).cdata,2);
+                end
+                mov(t).cdata =  mov(t).cdata(1:size_mov1-10,1:size_mov2-10,:);
+            end
+            % Clear frame if not the last one
+            if t<Nanalyzed; clf; end
+        end
+    end
+    % Save movie
+    if save_movie_density == 1
+        filename_movie = 'Density_along_x_';
+        saveMovie(dir_to_save_data, filename_movie, mov )
+    end
+    % Save variables
+    to_save = [[-1 x_density]; [time_vec(saves_to_analyze)', density_x_time]];
+    filename = ['Density_x_along_time_dx_' num2str(dx_density/a) 'a'];
+    save([dir_to_save_data '/' filename '.txt'],'to_save','-ascii')  
+end
 %% Histogram height + movie from top
-%{
 if histogram_height == 1
     t=0; 
     % Max/min position over all time
@@ -307,7 +433,7 @@ if histogram_height == 1
         
         if show_histogram_height ==1
             % Show particles
-            subplot(3,1,1:2); box on; hold on;
+            subplot(4,1,1:2); box on; hold on;
             mean_x = mean(mod(pos_COMs(t,:,1),box_x));
             axis_params = [ymin/a ymax/a mean_x/a-500  mean_x/a+500];
             plotCOM( n, t, pos_COMs, a, box_x, box_y, ms, axis_params, hmin, hmax, time_vec)
@@ -319,39 +445,66 @@ if histogram_height == 1
             set(gca,'xminortick','on')
             set(gca,'ticklength',3*get(gca,'ticklength'))
             box on
-            title(['$t = $' num2str(time_vec(i),'%5.2f') '$ s$'],'fontsize',30)
+            title(['$t = $' num2str(time_vec(t),'%5.2f') '$ s$'],'fontsize',30)
             if  histogram_height_front ==1
                 % Show front dividing line 
                 plot(linspace(ymin,ymax,100)/a, x_curr*ones(1,100)/a, '--r', 'linewidth', 3);
             end  
             % Show histogram
-            subplot(3,1,3); box on; hold on
+            subplot(4,1,3); box on; hold on
             plot(xhist/a, pdf_height*a, '-k', 'linewidth',2)    
             plot(xhist_ini/a, pdf_height_ini*a, '-', 'color', [0.7 0.7 0.7], 'linewidth',2)      
             plot(mean_height(t)*ones(10)/a, linspace(0,1,10), '--k', 'linewidth',2)
+            
             % Show front height pdf
             if  histogram_height_front ==1
                 plot(xhist_front/a, pdf_height_front*a, '-r', 'linewidth',2)
                 plot(mean_height_front(t)*ones(10)/a, linspace(0,1,10), '--r', 'linewidth',2)
             end
-            % Bookkeeping
+            
             xlabel('$h/a$','fontsize',24)
             ylabel('$P(h)\times a$','fontsize',24)
-            axis([0 2 0 10])
+%             axis([1 hmax/a 1e-3 3])
+%             axis([0 2 0 10])
+            axis([0 hmax/a 0 10])
             set(hfig,'color','w')
             set(gca,'yscale','log')
             set(gca,'layer','top')
             set(gca,'yminortick','on')
             set(gca,'xminortick','on')
             set(gca,'ticklength',3*get(gca,'ticklength'))
+            
+            %show packing fraction
+            subplot(4,1,4);
+            box on 
+            hold on
+%             plot((x_density + dx_density/2)/a,density_x_time(t,:),'-k','linewidth',1.5) %number density
+            plot((x_density + dx_density/2)/a,density_x_time(t,:)*pi*a/(5*box_y),'-k','linewidth',1.5) %packing fraction
+            xlim([min_x/a max_x/a])
+            ylim([0 max(max(density_x_time))])     
+            % Agnostic settings
+            ylabel('$\phi(x,t)$','fontsize',30)     
+            xlabel('$x/a$','fontsize',30)
+            set(gca,'yminortick','on')
+            set(gca,'xminortick','on')
+            set(gca,'ticklength',3*get(gca,'ticklength'))
+            set(hfig,'color','w')
+            set(gca,'layer','top')
+            pause(.0001)
         
             if save_movie_histogram == 1
-                mov_histo(t) = getframe(hfig);
-                if t==1
-                    size_mov1 = size(mov_histo(t).cdata,1)
-                    size_mov2 = size(mov_histo(t).cdata,2)
+%                 mov_histo(t) = getframe(hfig);
+                frame_enumeration_length = length(num2str(max(saved_steps_vec)));
+                frame_number = num2str(t - 1);
+                while length(frame_number) < frame_enumeration_length
+                    frame_number = ['0' frame_number]
                 end
-                mov_histo(t).cdata =  mov_histo(t).cdata(1:size_mov1-10,1:size_mov2-10,:);
+                saveas(hfig,['./movie/' 'Histogram_frame_' frame_number '.png']);
+%                 if t==1
+%                     size_mov1 = size(mov_histo(t).cdata,1)
+%                     size_mov2 = size(mov_histo(t).cdata,2)
+%                 end
+%                 mov_histo(t).cdata =  mov_histo(t).cdata(1:size_mov1-10,1:size_mov2-10,:);
             end
             pause(0.0001)
             if t<num_time_samples
@@ -424,7 +577,6 @@ if histogram_height == 1
     end
     
 end
-%}
 %% Fourier analysis of the front along the y-direction
 if analyze_fourier == 1 
     if image_sequence
@@ -684,139 +836,5 @@ if analyze_fourier == 1
     to_save = [time_vec(saves_to_analyze)', autocorrelation_distance];
     save([dir_to_save_data '/' filename '.txt'],'to_save','-ascii')
 end
-%% Analyze density profile along translational direction
-if analyze_front_density ==1
-    if image_sequence
-        saves_to_analyze = saved_steps_vec;
-    else
-        list_part = 1:N;
-        hmin = min(min(pos_COMs(:,:,3)));
-        hmax = max(max(pos_COMs(:,:,3)));
-
-        jump_front_density = 1;
-        save_1 = 1;
-        save_end = num_time_samples;   
-        saves_to_analyze = save_1:jump_front_density:save_end;
-    end  
-    % Number of frames/saved states
-    Nanalyzed = length(saves_to_analyze);
-    % Bin
-    % if moving grid dynamically choose grid and gridsize
-    if moving_grid
-        max_x = max(max(pos_COMs(save_1:save_end,:,1)));
-        min_x = min(min(pos_COMs(save_1:save_end,:,1)));
-        dx_density = 5*a;
-    % else choose a grid aligned with pixel grid
-    else
-        max_x = window(1);
-        min_x = 0;
-        dx_density = pixel_size;
-    end
-    % Set required variables from image sequence properties
-    if image_sequence
-        max_x = imseq.dimensions(1)*pixel_size;
-        min_x = 0;
-        dx_density = pixel_size;
-    end
-    % Common variables
-    if image_sequence
-        x_density = (0:imseq.dimensions(1)-1)*pixel_size;
-        density_x_time = zeros(Nanalyzed,imseq.dimensions(1));
-    else
-        Nx_density = floor((max_x-min_x)/dx_density);
-        x_density = linspace(min_x,max_x,Nx_density);
-        dx_density = x_density(2)-x_density(1);
-        density_x_time = zeros(Nanalyzed,Nx_density);
-    end
-    % set variable density_x_time
-    wait = waitbar(0)
-    if image_sequence
-        for i=saves_to_analyze
-            imseq_i = imseq.get(i);
-            thresholded = imseq_i == 0;
-            density_x_time(i, 1:end) = sum(imseq_i, 2);
-            waitbar(i/imseq.no_frames, wait,sprintf('frame %d of %d', i, imseq.no_frames));
-        end
-        disp(density_x_time(1,1:end))
-    else
-        t = 0;  
-        for i=saves_to_analyze
-            t=t+1;
-            indices_x = floor(pos_COMs(i,:,1)/dx_density)+1;
-            for nx=1:Nx_density
-                density_x_time(t,nx) = numel(list_part(indices_x == nx));
-            end
-        end
-    end
-
-    % Plot
-    if plot_density == 1
-        hfig = figure;
-        set(hfig,'position',[500 500  1500 800])
-        % Run through frames
-        t = 0;    
-        for i=saves_to_analyze
-            t=t+1;    
-            % Settings
-            box on; subplot(1,3,1); box on
-            % Plot COMs
-            if image_sequence
-                axis_params = [0 box_y/a min_x/a max_x/a];
-                frame = imseq.get(i);
-                plotImage(i, t, frame, pixel_size, a, box_x, box_y, ms, axis_params, time_vec)
-            else
-                if ~moving_grid
-                    axis_params = [0 window(2)/a min_x/a max_x/a];
-                else
-                    axis_params = [0 box_y/a min_x/a max_x/a];
-                end
-                plotCOM(i, t, pos_COMs, a, box_x, box_y, ms, axis_params, ...
-                    hmin, hmax, time_vec)
-            end
-            axis equal
-            axis(axis_params)
-            xlabel('$y/a$','fontsize',30)
-            ylabel('$x/a$','fontsize',30) 
-            set(gca,'yminortick','on')
-            set(gca,'xminortick','on')
-            set(gca,'ticklength',3*get(gca,'ticklength'))
-            box on
-            title(['$t = $' num2str(time_vec(i),'%5.2f') '$ s$'],'fontsize',30)
-            % Settings
-            subplot(1,3,2:3); box on
-            % Plot density
-            plot((x_density + dx_density/2)/a,density_x_time(t,:),'-k','linewidth',1.5)    
-            xlim([min_x/a max_x/a])
-            ylim([0 max(max(density_x_time))])     
-            % Agnostic settings
-            ylabel('$\rho(x,t)$','fontsize',30)     
-            xlabel('$x/a$','fontsize',30)
-            set(gca,'yminortick','on')
-            set(gca,'xminortick','on')
-            set(gca,'ticklength',3*get(gca,'ticklength'))
-            set(hfig,'color','w')
-            set(gca,'layer','top')
-            pause(0.0001)
-            % Save frame
-            if save_movie_density == 1
-                mov(t) = getframe(hfig);
-                if t==1
-                    size_mov1 = size(mov(t).cdata,1);
-                    size_mov2 = size(mov(t).cdata,2);
-                end
-                mov(t).cdata =  mov(t).cdata(1:size_mov1-10,1:size_mov2-10,:);
-            end
-            % Clear frame if not the last one
-            if t<Nanalyzed; clf; end
-        end
-    end
-    % Save movie
-    if save_movie_density == 1
-        filename_movie = 'Density_along_x_';
-        saveMovie(dir_to_save_data, filename_movie, mov )
-    end
-    % Save variables
-    to_save = [[-1 x_density]; [time_vec(saves_to_analyze)', density_x_time]];
-    filename = ['Density_x_along_time_dx_' num2str(dx_density/a) 'a'];
-    save([dir_to_save_data '/' filename '.txt'],'to_save','-ascii')  
-end
+Post_proc_sedimentation_JR.m
+Displaying Post_proc_sedimentation_JR.m.
