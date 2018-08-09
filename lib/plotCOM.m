@@ -1,4 +1,4 @@
-function [  ] = plotCOM( i, t, pos_COMs, a, box_x, box_y, ms, axis_params, hmin, hmax, time_vec)
+function [  ] = plotCOM(i, t, pos_COMs, a, box_x, box_y, ms, axis_params, hmin, hmax, time_vec)
 %PLOTCOM Summary of this function goes here
 %   Detailed explanation goes here
 if box_x>0 || box_y>0 % if periodic box, then scale markersize with radius
@@ -19,7 +19,7 @@ else
     scatter(mod(pos_COMs(t,:,2),box_y)/a,mod(pos_COMs(t,:,1),box_x)/a,ms,pos_COMs(t,:,3)/a,'.');
 end
 colormap(jet)
-caxis([hmin/a hmax/a])
+caxis([hmin/a hmax/a]);
 colorbar
 end
 

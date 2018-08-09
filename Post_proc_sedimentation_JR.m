@@ -12,7 +12,7 @@ ms = 8; % default markersize
 image_sequence = 0;
 step = 10;
 flip_axis=1;
-moving_grid = 0;
+moving_grid = 1;
 if image_sequence
     moving_grid = 0;
 end
@@ -28,6 +28,8 @@ histogram_height_front = 1;
 show_histogram_height = 1;
 save_figure_height_histogram =0;
 save_movie_histogram = 1;
+save_avi = 0;
+save_png = 1;
 
 analyze_fourier = 0;
 show_movie_fourier = 1;
@@ -35,8 +37,12 @@ show_particles = 1;
 save_movie_fourier = 1;
 
 analyze_front_density = 1;
+shifted_density = 0; % work in progress: bins the particles by both row and 
+%and column and then shifts the columns so that all column-maxima occur in
+%the same row. Then creates a histogram by averaging across the rows. 
 plot_density = 0;
 save_movie_density = 0;
+front_speed = 0; %not tested
 
 resolution = 0; % 0: singleblob, 12: 12 blobs, etc...
 %% declare the remaining needed variables
@@ -63,7 +69,13 @@ else
     string_more2 = '';
     initial_x_length = 645;
     initial_y_length = 1611;
-    tilt_angle = '0_314';
+    tilt_angle = '1_396';
+    
+    keyword = ''; %leave blank if no keyword.
+    if length(keyword) ==0
+    else
+        keyword = [keyword '_'];
+    end
 end
 %% Extract parameters from input file
 % creates a structure array whos fields are named dynamically according to
@@ -74,8 +86,8 @@ if image_sequence
     box_y = imseq.dimensions(2)*pixel_size;
     box_z = 0;
 else
-    filename_input = './N_30000_area_fraction_0_39999_grav_height_0_027394_Lx_645_Ly_1611_tilt_angle_0_524.inputfile';
-    dat = readInputfile(filename_input);
+    filename_input = [keyword tilt_angle '_angle_' num2str(N) '_N_' num2str(initial_x_length) '_Lx_' num2str(initial_y_length) '_Ly.inputfile'];
+    dat = readInputfile( filename_input);
 
     blob_radius = dat.blob_radius;
     kT = dat.kT;
@@ -121,16 +133,10 @@ else
        str2num_custom(hg_over_a)
     end
 
-    num_saved_steps = (num_steps/step_save_frequency)+1;
+    num_saved_steps = (num_steps/step_save_frequency);
 
-    dir_to_take_data = './';
-    folder = ['N_' num2str(N) ...
-        '_area_fraction_' str_area_fraction ...
-        '_grav_height_' str_grav_height ...
-        '_Lx_' num2str(initial_x_length) ...
-        '_Ly_' num2str(box_y) ...
-        '_tilt_angle_' tilt_angle ...
-    ];
+    dir_to_take_data = '/stoch/JRCruise/RigidMultiblobsWall/multi_bodies/examples/sedimenting_spheres/saves';
+    folder = [keyword 'N_' num2str(N) '_area_fraction_' str_area_fraction '_grav_height_' str_grav_height '_Lx_' num2str(initial_x_length) '_Ly_' num2str(box_y) '_tilt_angle_' tilt_angle];
 end
 %% Defines the physcial time vector and the frames to import
 if image_sequence
@@ -155,11 +161,10 @@ else
     num_time_samples = length(saved_steps_vec);
 end
 %% Open data files
-dir_to_save_data = './saves';
-mkdir 'saves'
+dir_to_save_data = '/stoch/JRCruise/RigidMultiblobsWall/multi_bodies/examples/sedimenting_spheres/saves/';
 if image_sequence
 else
-    file_blobs_tot = ['N_30000_area_fraction_0_39999_grav_height_0_027394_Lx_645_Ly_1611_tilt_angle_0_524.config'];
+    file_blobs_tot = [dir_to_take_data '/' folder '/' folder '.config'];
     if exist(file_blobs_tot, 'file')
         data_pos_orient = readConfig(file_blobs_tot, num_saved_steps, N);
         if Still_running == 0
@@ -214,7 +219,11 @@ else
           end  
     end
 end
+pos_COMs(:,:,1) = pos_COMs(:,:,1) - min(min(pos_COMs(:,:,1)));
 %% Analyze density profile along translational direction
+if front_speed
+    peak_positions = [];
+end
 if analyze_front_density ==1
     if image_sequence
         saves_to_analyze = saved_steps_vec;
@@ -222,7 +231,6 @@ if analyze_front_density ==1
         list_part = 1:N;
         hmin = min(min(pos_COMs(:,:,3)));
         hmax = max(max(pos_COMs(:,:,3)));
-
         jump_front_density = 1;
         save_1 = 1;
         save_end = num_time_samples;   
@@ -233,9 +241,12 @@ if analyze_front_density ==1
     % Bin
     % if moving grid dynamically choose grid and gridsize
     if moving_grid
-        max_x = max(max(pos_COMs(save_1:save_end,:,1)));
+        max_x = max(max(pos_COMs(save_1:save_end,:,1)));  
         min_x = min(min(pos_COMs(save_1:save_end,:,1)));
         dx_density = 5*a;
+        max_y = max(max(pos_COMs(save_1:save_end,:,2)));
+        min_y = min(min(pos_COMs(save_1:save_end,:,2)));
+        dy_density = 15*a;
     % else choose a grid aligned with pixel grid
     else
         max_x = window(1);
@@ -257,9 +268,15 @@ if analyze_front_density ==1
         x_density = linspace(min_x,max_x,Nx_density);
         dx_density = x_density(2)-x_density(1);
         density_x_time = zeros(Nanalyzed,Nx_density);
+        if shifted_density
+            Ny_density = floor((max_y-min_y)/dy_density);
+            y_density = linspace(min_y,max_y,Ny_density);
+            dy_density = y_density(2)-y_density(1);
+            shifted_number_grid = struct;
+        end
     end
     % set variable density_x_time
-    wait = waitbar(0)
+%     wait = waitbar(0)
     if image_sequence
         for i=saves_to_analyze
             imseq_i = imseq.get(i);
@@ -269,12 +286,48 @@ if analyze_front_density ==1
         end
         disp(density_x_time(1,1:end))
     else
-        t = 0;  
+        t = 0;
         for i=saves_to_analyze
             t=t+1;
             indices_x = floor(pos_COMs(i,:,1)/dx_density)+1;
             for nx=1:Nx_density
                 density_x_time(t,nx) = numel(list_part(indices_x == nx));
+            end
+            if front_speed
+                [dumb,peak_position] = max(density_x_time(t,:))
+                peak_positions = [peak_positions peak_position*dx_density+dx_density/2];
+            end
+            if shifted_density
+                number_grid = zeros(Nx_density,Ny_density);
+                for j = list_part
+                    index = pos_COMs(i,j,1:2);
+                    grid_y = floor(index(2)/dy_density)+1+abs(floor(min_y/dy_density));
+                    grid_x = floor(index(1)/dx_density)+1;
+                    number_grid(grid_x,grid_y) = number_grid(grid_x,grid_y) + 1;
+                end
+                pos_max = zeros(1,Ny_density);
+                for l = 1:Ny_density
+                    cont = true;
+                    m = grid_x;
+                    while cont
+                        if (m+1 > size(number_grid,1) || number_grid(m+1,l) == 0)
+                            cont = false;
+                            pos_max(l) = m;
+                        end
+                        m = m+1;
+                    end
+                end
+                II = min(pos_max);
+                shift = max(pos_max)-min(pos_max);
+                shftd_expd_grid = [number_grid ; zeros(shift,Ny_density)];
+    %             shftd_expd_grid = [zeros(shift,Ny_density) ; number_grid];
+                for k = 1:Ny_density
+                    shftd_expd_grid(:,k) = circshift(shftd_expd_grid(:,k),pos_max(k)-II);
+                end
+                shifted_histograms.(['save' num2str(t)]) = struct;
+                shifted_histograms.(['save' num2str(t)]).grid = shftd_expd_grid;
+                shifted_histograms.(['save' num2str(t)]).averaged_data = sum(shftd_expd_grid,2);
+                shifted_histograms.(['save' num2str(t)]).shift = shift;
             end
         end
     end
@@ -350,6 +403,17 @@ if analyze_front_density ==1
     filename = ['Density_x_along_time_dx_' num2str(dx_density/a) 'a'];
     save([dir_to_save_data '/' filename '.txt'],'to_save','-ascii')  
 end
+if front_speed 
+    delta_t = time_vec(2)-time_vec(1)
+    peak_velocities(1) = 0;
+    for i = 2:length(time_vec)
+        peak_velocities(i) = (peak_positions(i)-peak_positions(i-1))/delta_t
+    end
+    filename = [dir_to_save_data '/' folder '/front_pos.txt'];
+    fid = fopen(filename,'w');
+    fprintf(fid,'%s %s %s\n',['time_steps' 'position' 'velocity']);
+    fprintf(fid,'%f %f %f\n',[time_vec peak_positions peak_velocities]);
+end
 %% Histogram height + movie from top
 if histogram_height == 1
     t=0; 
@@ -394,7 +458,7 @@ if histogram_height == 1
         if histogram_height_front ==1
             % Defines the front according to the percentage of particles in the
             % region
-            percentage_front = 0.5;
+            percentage_front = 0.2;
             num_ps_in_front = floor(percentage_front*N);
             tol_front =  1e-3; % has to be within 1e-3 of 0.5
             step_move_front = 0.1;
@@ -421,6 +485,12 @@ if histogram_height == 1
             );
         [pdf_height, xhist] = hist2pdf(hist_height, edges);
         
+        thresholded_heights = hist_height;
+        thresholded_heights(thresholded_heights<7) = 0;
+        thresholded_heights = thresholded_heights(1:find(thresholded_heights,1,'last'));
+        thresholded_max_height = length(thresholded_heights)*bw+bw/2+hmin;
+        
+        
         % save initial distribution
         if t==1
             xhist_ini  = xhist;
@@ -435,11 +505,12 @@ if histogram_height == 1
             % Show particles
             subplot(4,1,1:2); box on; hold on;
             mean_x = mean(mod(pos_COMs(t,:,1),box_x));
-            axis_params = [ymin/a ymax/a mean_x/a-500  mean_x/a+500];
-            plotCOM( n, t, pos_COMs, a, box_x, box_y, ms, axis_params, hmin, hmax, time_vec)
+            max_x = max(pos_COMs(t,:,1));
+            axis_params = [ymin/a ymax/a max_x/a-280 max_x/a+20 ];
+            plotCOM( n, t, pos_COMs, a, box_x, box_y, ms, axis_params, hmin, thresholded_max_height, time_vec); 
             axis equal
             axis(axis_params)
-            xlabel('$y/a$','fontsize',30)
+%             xlabel('$y/a$','fontsize',30)
             ylabel('$x/a$','fontsize',30) 
             set(gca,'yminortick','on')
             set(gca,'xminortick','on')
@@ -466,7 +537,7 @@ if histogram_height == 1
             ylabel('$P(h)\times a$','fontsize',24)
 %             axis([1 hmax/a 1e-3 3])
 %             axis([0 2 0 10])
-            axis([0 hmax/a 0 10])
+            axis([0 thresholded_max_height/a 0 20])
             set(hfig,'color','w')
             set(gca,'yscale','log')
             set(gca,'layer','top')
@@ -479,9 +550,12 @@ if histogram_height == 1
             box on 
             hold on
 %             plot((x_density + dx_density/2)/a,density_x_time(t,:),'-k','linewidth',1.5) %number density
-            plot((x_density + dx_density/2)/a,density_x_time(t,:)*pi*a/(5*box_y),'-k','linewidth',1.5) %packing fraction
+            plot((x_density + dx_density/2)/a,density_x_time(t,:)*pi*a^2/(dx_density*(max_y-min_y)),'-k','linewidth',1.5) %packing fraction
+            if shifted_density
+                plot(([-shifted_histograms.(['save' num2str(t)]).shift*dx_density:dx_density:-dx_density x_density]+dx_density/2+abs(min_y))/a, shifted_histograms.(['save' num2str(t)]).averaged_data*pi*a^2/(dx_density*(max_y-min_y)),'r','linewidth',1.5)
+            end 
             xlim([min_x/a max_x/a])
-            ylim([0 max(max(density_x_time))])     
+            ylim([0 max(max(density_x_time))*pi*a^2/(dx_density*(max_y-min_y))])
             % Agnostic settings
             ylabel('$\phi(x,t)$','fontsize',30)     
             xlabel('$x/a$','fontsize',30)
@@ -493,18 +567,22 @@ if histogram_height == 1
             pause(.0001)
         
             if save_movie_histogram == 1
-%                 mov_histo(t) = getframe(hfig);
-                frame_enumeration_length = length(num2str(max(saved_steps_vec)));
-                frame_number = num2str(t - 1);
-                while length(frame_number) < frame_enumeration_length
-                    frame_number = ['0' frame_number]
+                if save_avi
+                    mov_histo(t) = getframe(hfig);
+                    if t==1
+                        size_mov1 = size(mov_histo(t).cdata,1)
+                        size_mov2 = size(mov_histo(t).cdata,2)
+                    end
+                    mov_histo(t).cdata =  mov_histo(t).cdata(1:size_mov1-10,1:size_mov2-10,:);
                 end
-                saveas(hfig,['./movie/' 'Histogram_frame_' frame_number '.png']);
-%                 if t==1
-%                     size_mov1 = size(mov_histo(t).cdata,1)
-%                     size_mov2 = size(mov_histo(t).cdata,2)
-%                 end
-%                 mov_histo(t).cdata =  mov_histo(t).cdata(1:size_mov1-10,1:size_mov2-10,:);
+                if save_png
+                    frame_enumeration_length = length(num2str(max(saved_steps_vec)));
+                    frame_number = num2str(t - 1);
+                    while length(frame_number) < frame_enumeration_length
+                        frame_number = ['0' frame_number];
+                    end
+                    saveas(hfig,[dir_to_save_data '/' folder '/Histogram_frame_' frame_number '.png']);
+                end
             end
             pause(0.0001)
             if t<num_time_samples
@@ -514,9 +592,21 @@ if histogram_height == 1
     end
     
     if save_movie_histogram == 1
-        pwd
-        filename_movie = 'Histogram_height';
-        saveMovie( dir_to_save_data, filename_movie, mov_histo )
+        if save_avi
+            pwd
+            filename_movie = 'Histogram_height';
+            saveMovie( dir_to_save_data, filename_movie, mov_histo )
+        end
+        if save_png == 1
+            cd([dir_to_save_data folder])
+            if exist('film')
+                unix('rm -r -f film');
+            end 
+            mkdir film
+            unix(['convert -resize 50% *.png ' folder '.gif']);
+            unix('find -name "Histogram_frame*" -exec mv -t film {} +')
+            cd('../..');
+        end
     end
     
     mean_pdf_height = mean_pdf_height/num_time_samples;
@@ -575,8 +665,8 @@ if histogram_height == 1
          filename = ['PDf_height_along_time_front'];
         save([dir_to_save_data '/' filename '.txt'],'to_save','-ascii')
     end
-    
 end
+
 %% Fourier analysis of the front along the y-direction
 if analyze_fourier == 1 
     if image_sequence
@@ -836,5 +926,5 @@ if analyze_fourier == 1
     to_save = [time_vec(saves_to_analyze)', autocorrelation_distance];
     save([dir_to_save_data '/' filename '.txt'],'to_save','-ascii')
 end
-Post_proc_sedimentation_JR.m
-Displaying Post_proc_sedimentation_JR.m.
+% Post_proc_sedimentation_JR.m
+% Displaying Post_proc_sedimentation_JR.m.
